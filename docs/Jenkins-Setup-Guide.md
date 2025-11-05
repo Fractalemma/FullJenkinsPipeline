@@ -1,191 +1,149 @@
 # Jenkins Setup Guide
 
-This guide provides step-by-step instructions for setting up Jenkins on Ubuntu 22.04 LTS, creating a deployment pipeline job, and configuring GitHub webhooks for automated deployments.
+This guide provides step-by-step instructions for setting up Jenkins Controller-Agent architecture on Ubuntu 22.04 LTS, creating a deployment pipeline job, and configuring GitHub webhooks for automated deployments.
 
 ## Table of Contents
 
-1. [Initial Jenkins Setup](#initial-jenkins-setup)
+1. [Initial Jenkins Controller Setup](#initial-jenkins-controller-setup)
 2. [Install Required Plugins](#install-required-plugins)
-3. [Configure Jenkins System Settings](#configure-jenkins-system-settings)
-4. [Create the Pipeline Job](#create-the-pipeline-job)
-5. [Configure GitHub Webhook](#configure-github-webhook)
-6. [Test the Pipeline](#test-the-pipeline)
-7. [Troubleshooting](#troubleshooting)
+3. [Configure NodeJS Tool](#configure-nodejs-tool)
+4. [Configure Jenkins Agent](#configure-jenkins-agent)
+5. [Disable Built-in Node](#disable-built-in-node)
+6. [Create the Pipeline Job](#create-the-pipeline-job)
+7. [Configure GitHub Webhook](#configure-github-webhook)
+8. [Test the Pipeline](#test-the-pipeline)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
-## Initial Jenkins Setup
+## Initial Jenkins Controller Setup
 
-### 1. Access Jenkins
+### 1. Access Jenkins Controller
 
-After Terraform deploys the Jenkins EC2 instance, access Jenkins through your browser:
+After Terraform deploys the infrastructure, access Jenkins through your browser:
 
 ```bash
-http://<JENKINS_EC2_PUBLIC_IP>:8080
+http://<JENKINS_CONTROLLER_PUBLIC_IP>:8080
 ```
 
-You can get the public IP from:
-
-- AWS Console (EC2 > Instances)
-- Terraform outputs (if configured)
-- SSM Session: Run `/opt/jenkins-scripts/jenkins-status.sh`
+Get the public IP from Terraform outputs: `jenkins-controller-url`
 
 ### 2. Unlock Jenkins
 
-Jenkins will prompt you for an initial admin password.
-
-### To retrieve the password
-
-#### Option A - Via SSM Session
+Retrieve the initial admin password via SSM Session to the controller:
 
 ```bash
 sudo cat /var/lib/jenkins/secrets/initialAdminPassword
-```
-
-#### Option B - Via helper script
-
-```bash
-/opt/jenkins-scripts/jenkins-status.sh
 ```
 
 Copy the password and paste it into the Jenkins web interface.
 
 ### 3. Customize Jenkins
 
-When prompted "Customize Jenkins":
-
 - Select: "Install suggested plugins"
-- Wait for the plugins to install (this may take 3-5 minutes)
+- Wait for installation (3-5 minutes)
 
-### 4. Create First Admin User
+### 4. Create Admin User
 
-Fill in the form to create your admin user:
-
-- Username: Choose a username (e.g., `admin`)
+- Username: `admin` (or your choice)
 - Password: Choose a strong password
 - Full name: Your name
-- Email: Your email address
+- Email: Your email
 
 Click **Save and Continue**.
 
 ### 5. Instance Configuration
 
-- Jenkins URL: Should be auto-filled as `http://<PUBLIC_IP>:8080/`
-- Verify it's correct and click **Save and Finish**
+- Jenkins URL: Auto-filled as `http://<PUBLIC_IP>:8080/`
+- Verify and click **Save and Finish**
 - Click **Start using Jenkins**
 
 ---
 
 ## Install Required Plugins
 
-Our pipeline requires additional plugins beyond the suggested ones.
+### Navigate to Plugin Manager
 
-### 1. Navigate to Plugin Manager
+1. **Manage Jenkins** > **Plugins** > **Available plugins**
 
-1. From Jenkins Dashboard, click **Manage Jenkins** (left sidebar)
-2. Click **Manage Plugins** (or **Plugins** in newer versions)
-3. Click on the **Available plugins** tab
+### Install These Plugins
 
-### 2. Search and Install Plugins
+- **GitHub plugin**
+- **NodeJS plugin**
 
-Search for and select the following plugins:
-
-#### Essential Plugins
-
-- GitHub plugin
-- NodeJS
-- Git plugin (usually already installed)
-- GitHub Branch Source plugin (usually already installed)
-- Pipeline (usually already installed)
-
-#### Optional but Recommended
-
-- Pipeline: Stage View
-- AnsiColor (colored console output)
-
-### 3. Install Plugins
-
-1. Check the box next to each plugin you want to install
-2. Click **Install without restart** (or **Download now and install after restart**)
-3. On the installation page, optionally check **Restart Jenkins when installation is complete and no jobs are running**
-4. Wait for installation to complete
+Click **Install without restart** and optionally check **Restart Jenkins when installation is complete**.
 
 ---
 
-## Configure Jenkins System Settings
+## Configure NodeJS Tool
 
-### 1. Configure Node.js Tool (Required)
+### Setup Node.js 22.2.0
 
-Our pipeline uses the NodeJS plugin with the `tools` directive. The plugin will automatically download and manage Node.js.
-
-1. Go to **Manage Jenkins** > **Global Tool Configuration**
-2. Scroll to the **NodeJS** section
+1. **Manage Jenkins** > **Global Tool Configuration**
+2. Scroll to **NodeJS** section
 3. Click **Add NodeJS**
-   - Name: `NodeJS 22.2.0` (this exact name must match the Jenkinsfile)
-   - Install automatically: ✅ Check this box
-   - Version: Select `NodeJS 22.2.0` from the dropdown (or the latest 20.x LTS version)
-   - Leave other options as default
+   - **Name**: `NodeJS 22.2.0` (must match Jenkinsfile exactly)
+   - **Install automatically**: ✅ Checked
+   - **Version**: Select `NodeJS 22.2.0`
 4. Click **Save**
 
-**Important**: The name `NodeJS 22.2.0` must match exactly what's in your Jenkinsfile's `tools` section:
+**Note**: Use Node.js 22.2.0 (version 25+ may fail with Vite). Jenkins will auto-download on first build.
 
-```groovy
-tools {
-    nodejs 'NodeJS 22.2.0'
-}
+---
+
+## Configure Jenkins Agent
+
+### Generate SSH Key Pair (Already Done in Terraform)
+
+The SSH key pair was generated during Terraform setup:
+
+```bash
+ssh-keygen -t rsa -b 4096 -f jenkins-agent-key -C "jenkins-agent"
 ```
 
-#### Note
+Public key is in AWS, private key is local.
 
-- The Jenkins plugin will download and cache Node.js automatically on the first build. No manual Node.js installation is required on the EC2 instance.
-- We use Node.js 22.2.0 to meet Vite's requirement of Node.js 20.19+ or 22.12+.
-- The AWS CLI is already installed in the instance thanks to the user_data script, no plugin is needed, it is going to be accessed through 'sh' in the pipeline.
+### Add Agent Node in Jenkins
 
-### 2. Configure System Settings (Optional - For Private Repositories)
+1. **Manage Jenkins** > **Nodes** > **New Node**
+2. **Node name**: `jenkins-agent`
+3. Select **Permanent Agent** > **Create**
 
-**For Public Repositories**: No system configuration is needed. Skip this section and proceed to [Create the Pipeline Job](#create-the-pipeline-job).
+#### Configure Agent
 
-**For Private Repositories**: If your GitHub repository is private, you'll need to add credentials that Jenkins can use to clone the repository.
+- **Number of executors**: `1`
+- **Remote root directory**: `/home/ubuntu/agent`
+- **Labels**: `agent` (optional)
+- **Usage**: **Use this node as much as possible**
+- **Launch method**: **Launch agents via SSH**
+  - **Host**: Use Terraform output `jenkins-agent-private-dns` (e.g., `ip-10-0-4-x.ec2.internal`)
+  - **Credentials**: Click **Add** > **Jenkins**
+    - **Kind**: SSH Username with private key
+    - **Scope**: Global
+    - **ID**: `jenkins-agent-key`
+    - **Description**: `Jenkins Agent SSH Key`
+    - **Username**: `ubuntu`
+    - **Private Key**: Select **Enter directly** > Paste your private key content from local `jenkins-agent-key` file
+    - Click **Add**
+  - Select the newly created credential from dropdown
+  - **Host Key Verification Strategy**: **Non verifying Verification Strategy**
+- **Availability**: **Keep this agent online as much as possible**
 
-#### Adding GitHub Credentials
+Click **Save**.
 
-1. Go to **Manage Jenkins** > **Credentials**
-2. Click on **(global)** domain
-3. Click **Add Credentials** (System -> Global Credentials)
-4. Configure based on your authentication method:
+### Verify Agent Connection
 
-##### Option A - Username and Password (Personal Access Token)
+The agent should automatically connect. Check **Manage Jenkins** > **Nodes** - the agent status should show a green checkmark.
 
-This is the recommended method for HTTPS URLs.
+---
 
-- **Kind**: Username with password
-- **Scope**: Global
-- **Username**: Your GitHub username
-- **Password**: Your GitHub Personal Access Token (PAT)
-  - To create a PAT: GitHub > Settings > Developer settings > Personal access tokens > Generate new token
-  - Required scope: `repo` (full control of private repositories)
-- **ID**: `github-credentials` (or any meaningful identifier)
-- **Description**: `GitHub Private Repository Access`
+## Disable Built-in Node
 
-Click **Create**.
+To force all builds to run on the agent:
 
-##### Option B - SSH Private Key
-
-This method is for SSH URLs (e.g., `git@github.com:user/repo.git`).
-
-- **Kind**: SSH Username with private key
-- **Scope**: Global
-- **ID**: `github-ssh-key` (or any meaningful identifier)
-- **Description**: `GitHub SSH Access`
-- **Username**: `git`
-- **Private Key**: Choose one:
-  - **Enter directly**: Paste your SSH private key
-  - **From a file on Jenkins controller**: Path to your private key file
-- **Passphrase**: If your private key has a passphrase, enter it here
-
-Click **Create**.
-
-**Note**: Your Jenkins EC2 instance or Jenkins user must have the corresponding public key added to your GitHub account (Settings > SSH and GPG keys).
+1. **Manage Jenkins** > **Nodes** > **Built-In Node** > **Configure**
+2. Set **Number of executors** to `0`
+3. Click **Save**
 
 ---
 
@@ -193,380 +151,154 @@ Click **Create**.
 
 ### 1. Create New Item
 
-1. From Jenkins Dashboard, click **New Item** (top left)
-2. Enter an item name: `deploy-vite-app` (or your preferred name)
-3. Select **Pipeline**
-4. Click **OK**
+1. **New Item** (top left)
+2. Name: `deploy-vite-app`
+3. Select **Pipeline** > **OK**
 
-### 2. General Configuration
+### 2. Configure Job
 
-In the job configuration page:
+#### General
 
-#### Description (Optional)
+- ✅ **GitHub project**: `https://github.com/<YOUR_USERNAME>/<YOUR_REPO>/`
 
-```text
-Automated deployment pipeline for Vite application to AWS via S3 and SSM
-```
+#### Build Triggers
 
-#### GitHub Project
+- ✅ **GitHub hook trigger for GITScm polling**
 
-- ✅ Check **GitHub project**
-- Project url: `https://github.com/<YOUR_USERNAME>/<YOUR_REPO>/`
+#### Pipeline
 
-### 3. Build Triggers
+- **Definition**: Pipeline script
+- **Script**: Copy entire contents of `Jenkinsfile`
 
-This section determines when the pipeline runs.
-
-#### For Automated Deployments (Webhook)
-
-- ✅ Check **GitHub hook trigger for GITScm polling**
-  - This enables the pipeline to trigger automatically when GitHub sends a webhook
-  - No additional configuration needed here
-  - The actual webhook will be configured on GitHub (next section)
-
-#### Alternative Options (choose based on your needs)
-
-### Option A - Poll SCM (not recommended for production)
-
-- ✅ Check **Poll SCM**
-- Schedule: `H/5 * * * *` (polls every 5 minutes)
-- *Note*: Uses more resources, delays are longer
-
-### Option B - Build periodically (for scheduled builds)
-
-- ✅ Check **Build periodically**
-- Schedule: Use cron syntax (e.g., `H 2 * * *` for daily at 2 AM)
-
-### Option C - Manual only
-
-- Leave all triggers unchecked
-- Builds only when manually triggered
-
-**Recommended**: Use **GitHub hook trigger for GITScm polling** for instant deployments.
-
-### 4. Advanced Project Options (Optional)
-
-You can configure these if needed:
-
-- Display Name: Custom display name for the job
-- Quiet period: Seconds to wait before starting build (default: 5)
-- Retry Count: Number of times to retry checkout (default: 0)
-
-### 5. Pipeline Configuration
-
-This is where you define your pipeline script.
-
-#### Pipeline Definition
-
-- Select **Pipeline script** (not Pipeline script from SCM)
-
-#### Script
-
-Copy the entire contents of the `Jenkinsfile` into the script text area.
-
-**Location of Jenkinsfile**: `./Jenkinsfile`
-
-The script should start with:
-
-```groovy
-pipeline {
-    agent any
-    
-    tools {
-        nodejs 'NodeJS 22.2.0'
-    }
-    
-    environment {
-        REGION = 'us-east-1'
-        BUCKET = 'your-bucket-name'
-        ...
-```
-
-**CRITICAL - Update These Values Before Running**:
-
-You must update the following sections in the Jenkinsfile:
-
-##### 1. GitHub Repository URL and Credentials (Line ~31-35)
-
-**For Public Repositories**:
-
-```groovy
-stage('Checkout') {
-    steps {
-        git branch: 'main',
-            url: 'https://github.com/YOUR_USERNAME/YOUR_REPO.git'
-    }
-}
-```
-
-**For Private Repositories**:
-
-If your repository is private, you need to add the `credentialsId` parameter with the ID of the credentials you created earlier:
-
-```groovy
-stage('Checkout') {
-    steps {
-        git branch: 'main',
-            credentialsId: 'github-credentials',  // Use the ID you created in Manage Credentials
-            url: 'https://github.com/YOUR_USERNAME/YOUR_REPO.git'
-    }
-}
-```
-
-Replace:
-
-- `YOUR_USERNAME` with your GitHub username
-- `YOUR_REPO` with your repository name
-- `github-credentials` with the actual credential ID if you used a different one
-
-##### 2. Environment Variables (Lines ~9-14)
-
-You can get these values from your Terraform outputs after deployment:
-
-```bash
-# Run this in your terraform/root directory
-terraform output
-```
-
-Update these environment variables in the Jenkinsfile:
+**Update environment variables in the script**:
 
 ```groovy
 environment {
-    REGION = 'us-east-1'                    // Your AWS region (from Terraform)
-    BUCKET = 'your-s3-bucket-name'          // From: terraform output s3_bucket_name
-    KEY_PREFIX = 'myapp/releases'           // S3 prefix for artifacts (keep or customize)
-    APP_TAG_KEY = 'Role'                    // Tag key for target instances (from Terraform)
-    APP_TAG_VAL = 'App'                     // Tag value for target instances (from Terraform)
+    REGION = 'us-east-1'
+    BUCKET = 'your-s3-bucket-name'
+    KEY_PREFIX = 'artifacts'
+    APP_TAG_KEY = 'Role'
+    APP_TAG_VAL = 'App'
 }
 ```
 
-**How to get the values**:
+**Update repository URL** (in Checkout stage):
 
-- **REGION**: The AWS region where you deployed (e.g., `us-east-1`)
-- **BUCKET**: Run `terraform output s3-bucket-name` in the `terraform/root` directory
-- **APP_TAG_KEY** and **APP_TAG_VAL**: These should match the tags on your EC2 instances (check your Terraform configuration in `terraform/root/main.tf` or AWS Console)
+```groovy
+git branch: 'main',
+    url: 'https://github.com/YOUR_USERNAME/YOUR_REPO.git'
+```
 
-**Alternative**: If you prefer, you can add a Terraform output that provides the complete environment block. See the troubleshooting section for details.
-
-#### Pipeline Options
-
-Below the script area, you may see:
-
-- Use Groovy Sandbox (should be checked)
-  - Allows the script to run with restricted permissions (safer)
-  - Uncheck only if you need unrestricted access and understand the risks
-
-### 6. Save the Job
-
-Click **Save** at the bottom of the page.
+Click **Save**.
 
 ---
 
 ## Configure GitHub Webhook
 
-Now we'll configure GitHub to automatically trigger the Jenkins pipeline on push events.
+### 1. Add Webhook in GitHub
 
-### 1. Navigate to Repository Settings
-
-1. Go to your GitHub repository
-2. Click **Settings** (top tab)
-3. Click **Webhooks** (left sidebar)
-4. Click **Add webhook**
+1. Go to your GitHub repository > **Settings** > **Webhooks** > **Add webhook**
 
 ### 2. Configure Webhook
 
-#### Payload URL
+- **Payload URL**: `http://<JENKINS_CONTROLLER_PUBLIC_IP>:8080/github-webhook/`
+  - Get from Terraform output: `jenkins-controller-url`
+  - **Trailing `/` is required**
+- **Content type**: `application/json`
+- **Which events**: Select **Just the push event**
+- ✅ **Active**
 
-```text
-http://<JENKINS_EC2_PUBLIC_IP>:8080/github-webhook/
-```
+Click **Add webhook**.
 
-#### Important Notes
+### 3. Verify
 
-- Replace `<JENKINS_EC2_PUBLIC_IP>` with your Jenkins server's public IP
-- The trailing `/` in `/github-webhook/` is **required**
-- Use `http://` not `https://` (unless you've configured SSL)
-
-**To get the exact URL**, you can run on the Jenkins EC2:
-
-```bash
-/opt/jenkins-scripts/webhook-info.sh
-```
-
-#### Content type
-
-- Select **application/json**
-
-#### Secret (Optional but Recommended)
-
-- Leave blank for now
-- For production, generate a secret token and configure it in both Jenkins and GitHub
-
-#### SSL verification
-
-- Select **Enable SSL verification** (if using HTTPS)
-- Select **Disable SSL verification** (if using HTTP - not recommended for production)
-
-#### Which events would you like to trigger this webhook?
-
-Select one of:
-
-### Option A - Just the push event (Recommended)
-
-- ⚪ Select **Just the push event**
-- Pipeline triggers on every push to the repository
-
-### Option B - Let me select individual events
-
-- ⚪ Select **Let me select individual events**
-- Check boxes:
-  - ✅ **Pushes**
-  - ✅ **Pull requests** (if you want to test PRs)
-
-### Option C - Send me everything
-
-- Not recommended (too noisy)
-
-#### Active
-
-- ✅ Ensure **Active** is checked
-
-### 3. Add Webhook
-
-Click **Add webhook**
-
-### 4. Verify Webhook
-
-After adding:
-
-1. GitHub will send a test ping to Jenkins
-2. You should see a green checkmark ✅ next to the webhook
-3. If you see a red ❌, click on the webhook to view the error details
-
-### Common Issues
-
-- Jenkins server not accessible from internet (check Security Group)
-- Incorrect URL (missing trailing slash)
-- Jenkins not running
+GitHub sends a test ping. You should see a green checkmark ✅. If red ❌, check security group allows port 8080.
 
 ---
 
 ## Test the Pipeline
 
-### Test 1: Manual Trigger
+### Manual Test
 
-1. Go to Jenkins Dashboard
-2. Click on your job (`deploy-vite-app`)
-3. Click **Build Now** (left sidebar)
-4. Watch the build progress in **Build History**
-5. Click on the build number (e.g., `#1`)
-6. Click **Console Output** to see logs
+1. Jenkins Dashboard > `deploy-vite-app` > **Build Now**
+2. Check **Console Output** for logs
 
-**Expected Result**: Pipeline should complete successfully
+### Webhook Test
 
-### Test 2: Automatic Trigger (Webhook)
+Push a change to your repository:
 
-1. Make a small change to your repository (e.g., update README)
-2. Commit and push to GitHub:
+```bash
+git commit --allow-empty -m "Test webhook"
+git push
+```
 
-   ```bash
-    git add .
-    git commit -m "Test webhook trigger"
-    git push
-   ```
+Build should trigger automatically in Jenkins.
 
-3. Go to Jenkins Dashboard
-4. Within a few seconds, you should see a new build starting automatically
+### Verify Deployment
 
-**Expected Result**: Build triggers automatically on push
-
-### Test 3: Verify Deployment
-
-After a successful build:
-
-1. Check the Console Output for the deployment log
-2. Access your application via the ALB URL or the Route 53 record URL
-3. Verify the new version is deployed
+Access your app via ALB URL from Terraform outputs and verify the deployment.
 
 ---
 
 ## Troubleshooting
 
-### Getting Terraform Output Values
+### Agent Not Connecting
 
-If you need to retrieve the values for your Jenkinsfile configuration:
+- Check security group allows SSH (port 22) from controller to agent
+- Verify private DNS hostname is correct
+- Check `/home/ubuntu/agent` directory exists on agent
+- Review agent logs: **Manage Jenkins** > **Nodes** > **jenkins-agent** > **Log**
+
+### Build Fails on Agent
+
+- Verify agent has Java installed: `java -version`
+- Check IAM role on agent allows S3 and SSM permissions
+- Review Console Output for specific errors
+
+### Node.js Issues
+
+- Ensure "NodeJS 22.2.0" tool name matches exactly in Global Tool Configuration
+- Avoid Node.js 25+ (use 22.2.0 for compatibility)
+
+### Webhook Not Triggering
+
+- Verify webhook URL has trailing `/`: `/github-webhook/`
+- Check GitHub webhook delivery history for errors
+- Ensure Jenkins controller security group allows inbound port 8080
+
+### Getting Terraform Outputs
 
 ```bash
-# Navigate to your Terraform directory
 cd terraform/root
-
-# View all outputs
 terraform output
-
-# Get specific outputs
-terraform output s3-bucket-name
-terraform output jenkins-webhook-endpoint
-terraform output project-url
 ```
 
-**Available Terraform Outputs**:
+---
 
-- `s3-bucket-name`: Your S3 bucket name (use for `BUCKET` variable)
-- `jenkins-server`: Your Jenkins server URL
-- `jenkins-webhook-endpoint`: The webhook URL to use in GitHub
-- `project-url`: Your application's public URL
-- `alb-alb_dns_name`: ALB DNS name
+## Quick Reference
 
-**For EC2 Instance Tags**: Check your `terraform/root/main.tf` file or run:
+### Prerequisites Checklist
 
-```bash
-# From your local machine (with AWS CLI configured)
-aws ec2 describe-instances \
-  --region us-east-1 \
-  --filters "Name=tag:Name,Values=*app*" \
-  --query "Reservations[*].Instances[*].[InstanceId,Tags]" \
-  --output table
-```
+1. ✅ Generate SSH key pair locally
+2. ✅ Deploy infrastructure with Terraform (add public key to tfvars)
+3. ✅ Access Jenkins controller and complete initial setup
+4. ✅ Install GitHub and NodeJS plugins
+5. ✅ Configure NodeJS 22.2.0 tool
+6. ✅ Add and configure Jenkins agent node
+7. ✅ Disable built-in node (set executors to 0)
+8. ✅ Create pipeline job with Jenkinsfile
+9. ✅ Set up GitHub webhook
+10. ✅ Test deployment
 
-### Jenkins Won't Start
+### Key URLs
 
-**Symptoms**: Can't access Jenkins web interface
+- **Jenkins Controller**: `http://<controller-ip>:8080`
+- **Webhook**: `http://<controller-ip>:8080/github-webhook/`
+- **Application**: Check Terraform output `project-url`
 
-**Solutions**:
+---
 
-```bash
-# Check Jenkins status
-sudo systemctl status jenkins
-
-# Check logs
-sudo journalctl -u jenkins -n 50
-
-# Restart Jenkins
-sudo systemctl restart jenkins
-
-# Check Java version
-java -version  # Should be Java 17
-```
-
-### Webhook Not Triggering Builds
-
-**Check Security Group**:
-
-- Ensure port 8080 is open to GitHub's webhook IPs
-- For testing, you can temporarily allow 0.0.0.0/0 (⚠️ not for production)
-
-**Check Jenkins GitHub Plugin**:
-
-1. Go to **Manage Jenkins** > **System Log**
-2. Look for webhook-related errors
-
-**Check GitHub Webhook Delivery**:
-
-1. Go to GitHub repository > Settings > Webhooks
-2. Click on your webhook
-3. Scroll to **Recent Deliveries**
-4. Click on a delivery to see the request and response
-5. Check for errors (should be `200 OK`)
+## Additional Resources
 
 ### Pipeline Fails at "Verify Node.js" Stage
 

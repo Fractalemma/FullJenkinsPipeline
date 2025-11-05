@@ -2,7 +2,7 @@
 
 Automated deployment pipeline that builds a Vite application and deploys it to AWS App EC2 instances via S3 and SSM.
 
-![Pipeline Architecture](docs/jenkins-pipeline-diagram.svg)
+![Pipeline Architecture](docs/jenkins-full-pipeline-1tier-app.svg)
 
 ## Quick Start
 
@@ -13,11 +13,15 @@ Automated deployment pipeline that builds a Vite application and deploys it to A
 
 ## Architecture
 
-- **Jenkins EC2**: Builds app, uploads artifacts to S3, sends SSM commands to App instances
+- **Jenkins Controller EC2**: Web UI and orchestration (t3.micro)
+- **Jenkins Agent EC2**: Builds app, uploads artifacts to S3, sends SSM commands to App instances (t3.small)
 - **App EC2 (ASG)**: Receives SSM commands, pulls artifacts from S3, deploys to Nginx
 - **ALB**: Routes traffic to App instances
 - **S3**: Stores build artifacts
-- **IAM Roles**: Jenkins (full S3 + SSM send), App (S3 read + SSM receive)
+- **IAM Roles**:
+  - Jenkins Controller (SSM Core for debug only)
+  - Jenkins Agent (full S3 + SSM send)
+  - App (S3 read + SSM receive)
 
 ## Pipeline Stages
 
@@ -31,6 +35,8 @@ Automated deployment pipeline that builds a Vite application and deploys it to A
 
 ## Key Features
 
+- Controller-Agent architecture for scalable builds
+- SSH-based agent connection across availability zones
 - Tag-based SSM targeting (Role=App)
 - Automatic ASG instance tagging
 - Timestamped artifact versioning
@@ -48,8 +54,9 @@ Automated deployment pipeline that builds a Vite application and deploys it to A
 
 - AWS Account with appropriate permissions
 - Terraform >= 1.0
-- Jenkins with NodeJS plugin
-- Node.js 22.2.0+ (managed by Jenkins)
+- SSH key pair for Jenkins agent connection
+- Jenkins with NodeJS and GitHub plugins
+- Node.js 22.2.0 (managed by Jenkins)
 - GitHub repository (public or private with credentials)
 
 ## Configuration
