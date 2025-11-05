@@ -1,0 +1,52 @@
+variable "region" {}
+variable "aws_profile" {}
+variable "project_name" {}
+
+variable "bucket_name" {}
+
+variable "vpc_cidr" {
+  # 10.123.0.0 - 10.123.255.255 (65536 IPs)
+  default = "10.0.0.0/16"
+}
+
+variable "pub_sub_a_cidr" {
+  # 10.123.1.4 - 10.123.1.254 (251 IPs)
+  default = "10.0.1.0/24"
+}
+variable "pub_sub_b_cidr" {
+  # 10.123.2.4 - 10.123.2.254 (251 IPs)
+  default = "10.0.2.0/24"
+}
+
+variable "pub_sub_jenkins_a_cidr" {
+  # 10.123.3.4 - 10.123.3.254 (251 IPs)
+  default = "10.0.3.0/24"
+}
+
+variable "pub_sub_jenkins_b_cidr" {
+  # 10.123.4.4 - 10.123.4.254 (251 IPs)
+  default = "10.0.4.0/24"
+}
+
+
+variable "jenkins_allowed_http_cidrs" {}
+
+variable "jenkins_agent_key_name" {
+  description = "SSH key pair name for Jenkins agent EC2 instance"
+  type        = string
+}
+
+variable "jenkins_agent_public_key" {
+  description = "SSH public key content for Jenkins agent (content of .pub file)"
+  type        = string
+  sensitive   = true
+}
+
+
+variable "sub_domain" {
+  default = "jenkins-full-pipeline"
+}
+variable "hosted_zone_name" {}
+
+variable "instance_role_tag_key" {}
+variable "instance_role_tag_value" {}
